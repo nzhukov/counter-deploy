@@ -1,22 +1,49 @@
 services:
   app:
+    image: counter-deploy-app:latest # образ обязателен для docker stack deploy
     build:
       context: ./
       dockerfile: Dockerfile
     env_file:
       - ./backend/.env
     ports:
-      - "80:8000"
+      - target: 8000
+        published: 80
+        protocol: tcp
+        mode: ingress # балансировка запросов на уровне Swarm
     depends_on:
       - redis
-    restart: always
+    deploy:
+      replicas: 4 # требуемое количество инстансов Flask-приложения
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        delay: 5s
+    networks:
+      - counter-net
 
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
     volumes:
-      - redis_data:/data
-    restart: always
+      - redis_data:/data # локальное состояние только для primary
+    deploy:
+      replicas: 1
+    networks:
+      - counter-net
+
+  redis-replica:
+    image: redis:7-alpine
+    command: ["redis-server", "--replicaof", "redis", "6379", "--appendonly", "yes"]
+    deploy:
+      replicas: 2 # увеличение числа инстансов БД за счет реплик
+    networks:
+      - counter-net
 
 volumes:
   redis_data:
+
+networks:
+  counter-net:
+    driver: overlay # требуется для межузловой коммуникации Swarm
