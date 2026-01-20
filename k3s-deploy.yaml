@@ -1,0 +1,115 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: counter
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: counter-backend
+  namespace: counter
+spec:
+  selector:
+    app: counter-backend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+  type: LoadBalancer # в k3s обычно реализуется через встроенный сервисный LB
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: counter-backend
+  namespace: counter
+spec:
+  replicas: 4 # требуемое число инстансов приложения
+  selector:
+    matchLabels:
+      app: counter-backend
+  template:
+    metadata:
+      labels:
+        app: counter-backend
+    spec:
+      containers:
+        - name: backend
+          image: counter-deploy-backend:latest # пример: образ должен быть заранее загружен в кластер
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: redis-primary
+            - name: REDIS_PORT
+              value: "6379"
+          ports:
+            - containerPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-primary
+  namespace: counter
+spec:
+  selector:
+    app: redis-primary
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-primary
+  namespace: counter
+spec:
+  serviceName: redis-primary
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-primary
+  template:
+    metadata:
+      labels:
+        app: redis-primary
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          args: ["--save", "60", "1", "--appendonly", "yes"]
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-replica
+  namespace: counter
+spec:
+  replicas: 2 # увеличение числа инстансов БД (реплики)
+  selector:
+    matchLabels:
+      app: redis-replica
+  template:
+    metadata:
+      labels:
+        app: redis-replica
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          args: ["--replicaof", "redis-primary", "6379", "--appendonly", "yes"]
+          ports:
+            - containerPort: 6379
