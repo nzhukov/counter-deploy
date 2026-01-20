@@ -35,7 +35,8 @@ services:
 
   redis-replica:
     image: redis:7-alpine
-    command: ["redis-server", "--replicaof", "redis", "6379", "--appendonly", "yes"]
+    command:
+      ["redis-server", "--replicaof", "redis", "6379", "--appendonly", "yes"]
     deploy:
       replicas: 2 # увеличение числа инстансов БД за счет реплик
     networks:
